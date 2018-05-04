@@ -1,0 +1,241 @@
+CREATE OR REPLACE PACKAGE xxtest_load_validate_pkg is
+	PROCEDURE xxtest_load_data_proc;
+	PROCEDURE xxtest_validate_proc;
+END xxtest_load_validate_pkg;
+
+CREATE OR REPLACE PACKAGE BODY xxtest_load_validate_pkb IS
+
+PROCEDURE xxtest_main_proc( x_errbuf              OUT      VARCHAR2
+                           , x_retcode             OUT      NUMBER
+                           , p_mode                IN       VARCHAR2
+                          )
+AS
+
+IF p_mode = 'LOAD' THEN
+
+       xxtest_load_data_proc;
+    
+END IF;  
+ 
+IF p_mode = 'VALIDATE' THEN
+
+       xxtest_validate_proc;
+
+END IF;
+
+IF p_mode = 'INSERT' THEN
+
+      xxtest_insert_proc();
+
+END IF;
+
+IF p_mode = 'UPDATE' THEN
+
+      xxtest_update_proc();
+
+END IF;
+
+IF p_mode = 'DELETE' THEN
+
+      xxtest_delete_proc();
+
+END IF;
+
+   
+
+cursor CUR_MAIN is select ename,enumber,salary,deptid from Assign where ename = v_name;
+	    v_ename        Assign.ename%type;
+	    v_enumber      Assign.enumber%type;
+	    v_salary       Assign.salary%type;
+	    v_deptid       Assign.deptid%type;
+	    v_refename     Assign.ename%type;
+	    v_refenumber   Assign.enumber%type;
+	    v_refsalary    Assign.salary%type;
+	    v_saldiff      number;
+	    v_salpercent   number;
+		CURSOR CUR1_MAIN 
+			IS 
+			select 
+				ename,
+				enumber,
+				salary from Assign where salary IN all(select max(salary) from Assign where deptid IN (select deptid from empdetails where ename=v_ename);
+	BEGIN
+	OPEN cur_main;
+	   fetch cur_main into v_ename,v_enumber,v_salary,v_deptid;
+	CLOSE cur_main;
+        OPEN cur1_main;
+	   fetch cur1_main 
+                INTO v_refename,v_refemmpno,v_refsalary;
+	CLOSE cur1_main;
+	      v_saldiff := v_refsalary - v_salary;
+	      v_salpercent := (v_saldiff/v_refsalary) * 100;
+	   insert into emp_custom values(v_ename,v_enumber,v_salary,v_deptid,v_refename,v_refenumber,v_refsalary,v_saldiff,v_salpercent);	
+END xxtest_main_proc;
+       
+       
+PROCEDURE xxtest_load_data_proc IS
+			v_ename     assign.ename%TYPE;
+      			v_enumber   assign.enumber%TYPE;
+      			v_salary    assign.salary%TYPE;
+      			v_depid     assign.depid%TYPE;
+
+    		CURSOR CUR_C 
+			IS 
+			SELECT 
+				ename,
+				enumber,
+				salary,
+				depid 
+			FROM Assign;
+
+	BEGIN
+
+  	OPEN CUR_C;
+     	LOOP
+        	FETCH CUR_C 
+        		INTO v_ename,v_enumber,v_salary,v_depid;
+        	EXIT when CUR_C%NOTFOUND;
+        	INSERT 
+        		INTO XXTEST_PERSON_TBL
+                          (ename,
+                           empno,
+                           sal,
+                           deptno,
+                           process_flag) 
+        	VALUES
+                     	(v_ename,
+              		v_enumber,
+              		v_salary,
+              		v_depid,
+              		'N');
+       END LOOP;
+       CLOSE CUR_C;
+
+      END XXTEST_LOAD_DATA_PROC;
+
+	PROCEDURE XXTEST_VALIDATE_PROC AS
+		CURSOR CUR_V 
+			is 
+			SELECT 
+				ename,	
+				empno,
+				sal,
+				deptno,
+				process_flag,
+				err_msg,
+				request_id 
+				from XXTEST_PERSON_TBL;
+        BEGIN
+			FOR i IN CUR_V LOOP
+
+				IF (i.ename is NULL) THEN 
+					i.err_msg:= i.err_msg||'Employee Name Not Found '||SQLERRM;
+		 			i.process_flag:='E';
+				END IF;
+	   			IF (i.empno is NULL) THEN
+	     				i.err_msg:= i.err_msg||||'Employee Number Not Found '||SQLERRM;
+		 			i.process_flag:='E';
+				END IF;
+	   			IF (i.sal is NULL) THEN
+	     				i.err_msg:= i.err_msg||'Salary Not Found '||SQLERRM;
+					i.process_flag:='E';
+				END IF;
+	   			IF (i.deptno is NULL) THEN
+	     				i.err_msg:= i.err_msg||'Department Number Not Found '||SQLERRM;
+					i.process_flag:='E';	
+	  			END IF;
+	 	       END LOOP;
+	  	       FOR j IN CUR_V LOOP 	  
+     				IF (j.deptno=10 and j.sal<1500 or j.sal>2500 ) THEN
+           				j.err_msg:= j.err_msg||'Salary is not allaigned'||SQLERRM;
+		   			j.process_flag:='E';
+		   				ELSIF(j.process_flag='E') THEN
+						    else
+		        			j.process_flag:='V';
+     				END IF;
+ 
+      				IF (j.deptno=20 and j.sal<1300 or j.sal>2500) THEN
+            				j.err_msg:= j.err_msg||'Salary is not allaigned'||SQLERRM;
+           				j.process_flag:='E';	
+        			            ELSIF (j.process_flag='E') THEN
+     					 	  ELSE
+		        				j.process_flag:='V';	   
+          			END IF;
+      				IF (j.deptno=30 and j.sal<13000) THEN
+           				j.err_msg:= j.err_msg||'Salary is not allaigned'||SQLERRM;
+		   			j.process_flag:='E';
+		   				ELSIF (j.process_flag='E')
+      							else
+		   						j.process_flag:='V';
+      				END IF;
+
+      			END LOOP;
+	  END xxtest_validate_proc;
+END xxtest_load_validate_pkg;
+
+
+	PROCEDURE xxtest_insert_proc(
+	   	p_ename       IN     emp_custom.ename%TYPE,
+	   	p_enumber     IN     emp_custom.enumber%TYPE,
+	        p_salary      IN     emp_custom.salary%TYPE,
+	   	p_deptid      IN     emp_custom.deptid%TYPE)
+                P_refename    IN     emp_custom.refename%type;
+	        p_refenumber  IN     emp_custom.refenumber%type;
+	        p_refsalary   IN     emp_custom.refsalary%type;
+	        p_saldiff     IN     emp_custom.saldiff%type;
+	        p_salpercent  IN     emp_custom.salpercent%type;
+IS
+	BEGIN
+
+  		INSERT INTO emp_custom("ENAME", "ENUMBER", "SALARY", "DEPTID","REFENAME","REFENUMBER","REFSALARY","REFSALDIFF","REFSALPERCENT")
+  		VALUES (p_ename, p_enumber,p_salary, p_deptid,p_refename,p_refenumber,p_refsalary,p_saldiff,p_salpercent);
+
+  	COMMIT;
+
+END;
+
+
+
+	PROCEDURE xxtest_update_proc
+     		(p_ename      IN varchar2,
+      		p_enumber     IN number,
+      		p_salary      IN number,
+      		p_deptid      IN number,
+                p_refename    IN varchar2,
+                p_refenumber  IN number,
+                p_refsalary   IN number,
+                p_saldiff     IN number,
+                p_salpercent  IN number)
+    
+  
+AS
+  BEGIN
+        UPDATE emp_custom
+              SET ename      = p_ename,
+                  enumber    = p_enumber,
+                  salary     = P_salary,
+                  deptid     = p_deptid,
+                  refename   =p_refename,
+                  refenumber =p_refenumber,
+                  refsalary  =p_refsalary,
+                  saldiff    =p_saldiff,
+                  salpercent =p_salpercent;
+              
+       WHERE depid = p_depid;
+   END;
+
+  
+
+
+
+ PROCEDURE xxtest_delete_proc(p_empno IN emp_custom.empno%TYPE)
+IS
+BEGIN
+
+  DELETE emp_custom where empno = p_empno;
+
+  COMMIT;
+
+END;
+
+  
